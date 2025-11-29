@@ -1,17 +1,43 @@
-from flask import Flask, jsonify, request
-from flask import render_template
+from flask import Flask, jsonify, request, render_template, session, redirect
 import sqlite3
 from leer_correo import sincronizar_correos_desde_gmail
-
+from auth import auth   # Blueprint de login
 
 DB_NAME = "incidencias.db"
 
 app = Flask(__name__)
+app.secret_key = "super_secret_key_pon_algo_mejor"  # Necesario para sesiones
+
+# Registramos rutas de login ANTES del before_request
+app.register_blueprint(auth)
+
 
 # ================================
-#  FUNCIONES DE BASE DE DATOS
+#   ACCESO PERMITIDO A ESTOS EMAILS
 # ================================
+ADMINS = [
+    "al2276xxxx@ite.edu.mx",
+    "tu_gmail@gmail.com"
+]
 
+
+# ================================
+#   FILTRO DE ACCESO
+# ================================
+@app.before_request
+def verificar_acceso():
+    rutas_publicas = ("auth.login", "auth.callback", "static")
+
+    if request.endpoint not in rutas_publicas:
+        if "email" not in session:
+            return redirect("/login")
+        if session["email"] not in ADMINS:
+            return "Acceso denegado: No tienes permisos", 403
+
+
+# ================================
+#   FUNCIONES BD
+# ================================
 def obtener_conexion():
     return sqlite3.connect(DB_NAME)
 
@@ -48,75 +74,29 @@ def actualizar_estado(id, estado):
     conn.commit()
     conn.close()
 
-def borrar_incidencia(id):
-    conn = obtener_conexion()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM incidencias WHERE id = ?", (id,))
-    conn.commit()
-    conn.close()
-
 
 # ================================
 #            ENDPOINTS
 # ================================
-
 @app.route("/incidencias", methods=["GET"])
 def api_incidencias():
     datos = obtener_incidencias()
-    lista = []
-
-    for row in datos:
-        lista.append({
-            "id": row[0],
-            "message_id": row[1],
-            "remitente": row[2],
-            "asunto": row[3],
-            "descripcion": row[4],
-            "fecha": row[5],
-            "estado": row[6]
-        })
-
+    lista = [{
+        "id": row[0],
+        "message_id": row[1],
+        "remitente": row[2],
+        "asunto": row[3],
+        "descripcion": row[4],
+        "fecha": row[5],
+        "estado": row[6]
+    } for row in datos]
     return jsonify(lista)
-
-
-@app.route("/incidencias/<int:id>", methods=["GET"])
-def api_incidencia(id):
-    fila = obtener_incidencia(id)
-
-    if not fila:
-        return jsonify({"error": "Incidencia no encontrada"}), 404
-
-    return jsonify({
-        "id": fila[0],
-        "message_id": fila[1],
-        "remitente": fila[2],
-        "asunto": fila[3],
-        "descripcion": fila[4],
-        "fecha": fila[5],
-        "estado": fila[6]
-    })
-
-
-@app.route("/incidencias", methods=["POST"])
-def api_insertar():
-    datos = request.json
-
-    insertar_incidencia(
-        datos["message_id"],
-        datos["remitente"],
-        datos["asunto"],
-        datos["descripcion"],
-        datos["fecha"]
-    )
-
-    return jsonify({"mensaje": "Incidencia agregada correctamente"})
 
 
 @app.route("/incidencias/<int:id>", methods=["PUT"])
 def api_actualizar(id):
     datos = request.json
     actualizar_estado(id, datos["estado"])
-
     return jsonify({"mensaje": "Estado actualizado correctamente"})
 
 
@@ -126,30 +106,16 @@ def api_sincronizar():
     return jsonify({"mensaje": f"{nuevas} incidencias sincronizadas desde Gmail"})
 
 
-#@app.route("/")
-#def home():
-#   return """
-#   <h1>Gestor de Incidencias Kotkoff</h1>
-#    <p>El servidor Flask está funcionando correctamente.</p>
-#    <p>Endpoints disponibles:</p>
-#    <ul>
-#        <li>/incidencias (GET)</li>
-#        <li>/incidencias (POST)</li>
-#        <li>/incidencias/&lt;id&gt; (GET)</li>
-#        <li>/incidencias/&lt;id&gt; (PUT)</li>
-#        <li>/incidencias/&lt;id&gt; (DELETE)</li>
-#    </ul>
-#    """
-
-
+# ================================
+#    PANEL PRINCIPAL (PROTEGIDO)
+# ================================
 @app.route("/")
 def panel_incidencias():
     return render_template("index.html")
 
 
 # ================================
-#        INICIAR SERVIDOR
+#    INICIAR SERVIDOR
 # ================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
