@@ -1,0 +1,21 @@
+# Archivos sensibles
+credentials.json
+token.json
+
+# Entornos virtuales
+venv/
+.venv/
+
+# Archivos Python temporales
+__pycache__/
+*.pyc
+
+# Archivos de configuración del sistema
+*.db
+*.sqlite3
+
+# Archivos ocultos de Mac/Linux
+.DS_Store
+
+# Archivos subidos
+uploads/
