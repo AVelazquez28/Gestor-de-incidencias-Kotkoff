@@ -1,14 +1,14 @@
 from flask import Flask, jsonify, request, render_template, session, redirect
 import sqlite3
 from leer_correo import sincronizar_correos_desde_gmail
-from auth import auth
 
-print("=== APP.PY LOADED ===")
+print("=== APP LOADED ===")
 
 app = Flask(__name__)
 app.secret_key = "supersecret"
 
-# Registrar blueprint DESPUÉS de crear app
+# Ahora sí puedes importar y registrar el blueprint
+from auth import auth
 app.register_blueprint(auth)
 
 DB_NAME = "incidencias.db"
