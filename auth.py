@@ -1,19 +1,18 @@
-from flask import Blueprint, redirect, url_for, session
+from flask import Blueprint, redirect, session, request
 from google_auth_oauthlib.flow import Flow
+from google.oauth2 import id_token
+from google.auth.transport import requests
 import os
-import pathlib
 
 auth = Blueprint("auth", __name__)
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 GOOGLE_CLIENT_ID = "TU_CLIENT_ID"
-GOOGLE_CLIENT_SECRET = "TU_CLIENT_SECRET"
-
 SCOPES = ["https://www.googleapis.com/auth/userinfo.email", "openid"]
 
-# Esta ruta la vas a usar en Google Cloud:
-REDIRECT_URI = "http://127.0.0.1:5000/callback"
+# IMPORTANTE → actualiza por tu URL de Render
+REDIRECT_URI = "https://tu-proyecto.onrender.com/callback"
 
 
 @auth.route("/login")
@@ -24,12 +23,12 @@ def login():
         redirect_uri=REDIRECT_URI
     )
 
-    authorization_url, _ = flow.authorization_url(
+    auth_url, _ = flow.authorization_url(
         prompt="consent",
         include_granted_scopes="true"
     )
 
-    return redirect(authorization_url)
+    return redirect(auth_url)
 
 
 @auth.route("/callback")
@@ -43,20 +42,20 @@ def callback():
     flow.fetch_token(authorization_response=request.url)
 
     credentials = flow.credentials
-    request_session = google.auth.transport.requests.Request()
+    token_request = requests.Request()
 
-    id_info = google.oauth2.id_token.verify_oauth2_token(
+    info = id_token.verify_oauth2_token(
         credentials._id_token,
-        request_session,
+        token_request,
         GOOGLE_CLIENT_ID
     )
 
-    session["email"] = id_info.get("email")
+    session["email"] = info.get("email")
 
     return redirect("/")
-    
+
 
 @auth.route("/logout")
 def logout():
     session.clear()
-    return redirect("/")
+    return redirect("/login")
