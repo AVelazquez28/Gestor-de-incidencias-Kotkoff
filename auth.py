@@ -41,7 +41,7 @@ def login():
 
     auth_url, state = flow.authorization_url(
     access_type="offline",
-    prompt="consent"
+    prompt="consent",
     include_granted_scopes=True  # ← ESTA LÍNEA FALTABA
 
 
