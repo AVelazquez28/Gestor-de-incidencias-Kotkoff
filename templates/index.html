@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel de Incidencias - Kotkoff</title>
+<a href="/login" class="btn btn-danger">Iniciar sesión con Google</a>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body.dark {
+            background: #1f1f1f;
+            color: white;
+        }
+        .dark .card {
+            background: #2b2b2b;
+            color: white;
+        }
+        th { cursor: pointer; }
+
+        .estado-abierto { color: #0d6efd; font-weight: bold; }
+        .estado-proceso { color: #ffc107; font-weight: bold; }
+        .estado-cerrado { color: #198754; font-weight: bold; }
+    </style>
+</head>
+
+<body class="p-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>📌 Gestor de Incidencias Kotkoff</h2>
+        <button class="btn btn-dark" onclick="toggleTheme()">🌙 Tema oscuro</button>
+    </div>
+
+    <!-- BUSCADOR -->
+    <input type="text" id="buscar" class="form-control mb-3" placeholder="Buscar incidencias..." onkeyup="filtrarTabla()">
+
+    <!-- FILTROS -->
+    <div class="mb-3">
+        <button class="btn btn-info btn-sm me-1" onclick="filtrarEstado('todos')">Todas</button>
+        <button class="btn btn-primary btn-sm me-1" onclick="filtrarEstado('abierto')">Inicio</button>
+        <button class="btn btn-warning btn-sm me-1" onclick="filtrarEstado('proceso')">En proceso</button>
+        <button class="btn btn-success btn-sm" onclick="filtrarEstado('cerrado')">Completadas</button>
+    </div>
+
+    <!-- BOTÓN ACTUALIZAR -->
+    <button class="btn btn-info mb-3" onclick="sincronizarYActualizar()">🔄 Actualizar</button>
+
+    <!-- TABLA -->
+    <div class="card p-3 shadow">
+        <table class="table table-hover mt-3" id="tablaIncidencias">
+            <thead class="table-dark">
+                <tr>
+                    <th onclick="ordenarTabla(0)">ID ▲▼</th>
+                    <th onclick="ordenarTabla(2)">Remitente ▲▼</th>
+                    <th onclick="ordenarTabla(3)">Asunto ▲▼</th>
+                    <th>Descripción</th>
+                    <th onclick="ordenarTabla(5)">Fecha ▲▼</th>
+                    <th onclick="ordenarTabla(6)">Estado ▲▼</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="contenidoTabla"></tbody>
+        </table>
+    </div>
+
+    <!-- GRÁFICA -->
+    <div class="card mt-4 p-3 shadow text-center" style="max-width: 800px; margin: auto;">
+        <h4>📊 Estadísticas de Incidencias</h4>
+        <canvas id="graficaEstados" style="max-height: 500px;"></canvas>
+    </div>
+
+
+<script>
+let datosTabla = [];
+let ordenAsc = true;
+function sincronizarYActualizar() {
+    fetch("/sincronizar", { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            console.log("Sincronización:", data.mensaje);
+            cargarIncidencias();
+        });
+}
+
+// ===============================
+// CARGAR INCIDENCIAS
+// ===============================
+function cargarIncidencias() {
+    fetch("/incidencias")
+        .then(res => res.json())
+        .then(data => {
+            datosTabla = data;
+            renderTabla(data);
+            actualizarGrafica(data);
+        });
+}
+
+function renderTabla(lista) {
+    let html = "";
+
+    lista.forEach(inc => {
+        let claseEstado =
+            inc.estado === "abierto" ? "estado-abierto" :
+            inc.estado === "proceso" ? "estado-proceso" :
+            "estado-cerrado";
+
+        html += `
+        <tr>
+            <td>${inc.id}</td>
+            <td>${inc.remitente}</td>
+            <td>${inc.asunto}</td>
+            <td>${inc.descripcion.substring(0, 200)}</td>
+            <td>${inc.fecha}</td>
+            <td class="${claseEstado}">
+                ${ inc.estado === "abierto" ? "Inicio" :
+                   inc.estado === "proceso" ? "En proceso" :
+                   "Completado"
+                }
+            </td>
+
+            <td>
+                <button class="btn btn-primary btn-sm" onclick="cambiarEstado(${inc.id}, 'abierto')">Inicio</button>
+                <button class="btn btn-warning btn-sm" onclick="cambiarEstado(${inc.id}, 'proceso')">Proceso</button>
+                <button class="btn btn-success btn-sm" onclick="cambiarEstado(${inc.id}, 'cerrado')">Completado</button>
+            </td>
+        </tr>
+        `;
+    });
+
+    document.getElementById("contenidoTabla").innerHTML = html;
+    
+}
+
+// ===============================
+// FILTRAR BUSCADOR
+// ===============================
+function filtrarTabla() {
+    let texto = document.getElementById("buscar").value.toLowerCase();
+
+    let filtrados = datosTabla.filter(inc =>
+        inc.remitente.toLowerCase().includes(texto) ||
+        inc.asunto.toLowerCase().includes(texto) ||
+        inc.descripcion.toLowerCase().includes(texto)
+    );
+
+    renderTabla(filtrados);
+}
+
+// ===============================
+// FILTRO DE ESTADO
+// ===============================
+function filtrarEstado(estado) {
+    if (estado === "todos") {
+        renderTabla(datosTabla);
+        return;
+    }
+    let filtrados = datosTabla.filter(inc => inc.estado === estado);
+    renderTabla(filtrados);
+}
+
+// ===============================
+// ORDENAR TABLA
+// ===============================
+function ordenarTabla(columna) {
+    datosTabla.sort((a, b) => {
+        let valA = Object.values(a)[columna];
+        let valB = Object.values(b)[columna];
+
+        if (valA < valB) return ordenAsc ? -1 : 1;
+        if (valA > valB) return ordenAsc ? 1 : -1;
+        return 0;
+    });
+
+    ordenAsc = !ordenAsc;
+    renderTabla(datosTabla);
+}
+
+// ===============================
+// CAMBIAR ESTADO
+// ===============================
+function cambiarEstado(id, estado) {
+    fetch(`/incidencias/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estado })
+    }).then(() => cargarIncidencias());
+}
+
+// ===============================
+// TEMA OSCURO
+// ===============================
+function toggleTheme() {
+    document.body.classList.toggle("dark");
+}
+
+// ===============================
+// GRÁFICA
+// ===============================
+let grafica;
+
+function actualizarGrafica(data) {
+    let estados = { abierto: 0, proceso: 0, cerrado: 0 };
+
+    data.forEach(inc => {
+        estados[inc.estado]++;
+    });
+
+    let ctx = document.getElementById("graficaEstados").getContext("2d");
+
+    if (grafica) grafica.destroy();
+
+    grafica = new Chart(ctx, {
+        type: "pie",
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+        },
+        data: {
+            labels: ["Inicio", "En proceso", "Completado"],
+            datasets: [{
+                data: [estados.abierto, estados.proceso, estados.cerrado],
+                backgroundColor: ["#0d6efd", "#ffc107", "#198754"]
+            }]
+        }
+    });
+}
+
+cargarIncidencias();
+</script>
+
+</body>
+</html>
