@@ -6,6 +6,9 @@ print("=== APP LOADED ===")
 
 app = Flask(__name__)
 app.secret_key = "supersecret"
+app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
+
 
 # Ahora sí puedes importar y registrar el blueprint
 from auth import auth
