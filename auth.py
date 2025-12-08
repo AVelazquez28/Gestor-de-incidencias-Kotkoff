@@ -12,11 +12,10 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
 SCOPES = [
     "openid",
-    "email",
-    "profile",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.readonly"
+
 ]
 
 def build_flow(state=None):
