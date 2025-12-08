@@ -1,3 +1,4 @@
+import os
 from flask import Flask, jsonify, request, render_template, session, redirect
 import sqlite3
 from leer_correo import sincronizar_correos_desde_gmail
