@@ -40,9 +40,10 @@ def login():
     flow.redirect_uri = GOOGLE_REDIRECT_URI
 
     auth_url, state = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes=True,
-        prompt="consent"
+    access_type="offline",
+    prompt="consent"
+
+
     )
 
     session["state"] = state
