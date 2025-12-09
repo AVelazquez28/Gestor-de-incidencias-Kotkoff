@@ -28,7 +28,7 @@ crear_base_datos()
 # Correos que SÍ pueden entrar al panel
 ADMINS = [
     "al2276xxxx@ite.edu.mx",
-    "tu_gmail@gmail.com",
+    "sistemas@kotkoff.com",
 ]
 
 
