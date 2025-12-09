@@ -1,177 +1,147 @@
 import base64
-from email.mime.text import MIMEText
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
-import re
-import os
-from database import crear_base_datos, guardar_incidencia
-from database import crear_base_datos, guardar_incidencia, existe_incidencia
+
+from database import crear_base_datos, existe_incidencia, guardar_incidencia
 
 
+PALABRAS_CLAVE = [
+    "error", "falla", "fallo", "problema", "daño", "incidencia",
+    "no funciona", "no prende", "no enciende", "no responde",
+    "no abre", "pantalla azul", "bloqueado", "congelado",
+    "se traba", "lento", "tarda mucho", "descompuesto",
+    "servidor caído", "inaccesible", "no tengo acceso",
+    "desconectado", "red caída", "problemas de red", "ups"
+]
 
-# Permisos necesarios
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-
-def authenticate_gmail():
-    creds = None
-
-    # Si ya existe token.json, úsalo
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
-    # Si no existe o está vencido, genera uno nuevo
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())   # RENUEVA AUTOMÁTICO SIN PEDIR PERMISOS
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-            creds = flow.run_local_server(port=0, access_type="offline", prompt="consent")
-
-        # Guardamos el token para no volver a pedir permisos
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
-
-    return build("gmail", "v1", credentials=creds)
+BLOQUEAR_REMITENTES = [
+    "godaddy", "no-reply", "noreply",
+    "notification", "notificaciones", "alerts",
+    "amazon", "microsoft", "apple",
+    "facebook", "instagram", "paypal", "mercadolibre",
+    "linkedin", "teams", "zoom", "slack",
+]
 
 
-def leer_correos_usuario(access_token):
-    creds = Credentials(token=access_token)
+def extraer_cuerpo(payload: dict) -> str:
+    """Saca el texto del cuerpo del correo (versión simple)."""
+    partes = payload.get("parts", [])
+    cuerpo = ""
 
-    service = build("gmail", "v1", credentials=creds)
+    if partes:
+        for parte in partes:
+            data = parte.get("body", {}).get("data")
+            if data:
+                cuerpo = base64.urlsafe_b64decode(data).decode(
+                    "utf-8", errors="ignore"
+                )
+                break
+    else:
+        data = payload.get("body", {}).get("data")
+        if data:
+            cuerpo = base64.urlsafe_b64decode(data).decode(
+                "utf-8", errors="ignore"
+            )
 
-    results = service.users().messages().list(
-        userId='me',
-        q="is:inbox"
-    ).execute()
+    return cuerpo
 
-    mensajes = results.get("messages", [])
 
-    return mensajes
-
-def leer_correos(service, max_correos=5):
+def leer_correos(service, max_correos=10):
     """
-    Lee los últimos correos de la bandeja de entrada de Gmail.
+    Lee correos desde un servicio Gmail ya autenticado.
+    NO escribe en la BD, solo regresa una lista de incidencias detectadas.
     """
     results = service.users().messages().list(
-        userId='me',
+        userId="me",
         q="is:inbox",
+        maxResults=max_correos,
         includeSpamTrash=False
     ).execute()
 
-    mensajes = results.get('messages', [])[:max_correos]
-
-
-    incidencias_detectadas = []
+    mensajes = results.get("messages", [])
+    incidencias = []
 
     if not mensajes:
         print("No hay mensajes para leer.")
-        return []
+        return incidencias
 
-    print(f"\nLeyendo los últimos {max_correos} correos...\n")
+    print(f"\nLeyendo hasta {max_correos} correos...\n")
+
     for msg in mensajes:
-        mensaje = service.users().messages().get(userId='me', id=msg['id']).execute()
-        payload = mensaje['payload']
-        headers = payload.get("headers")
         message_id = msg["id"]
+        mensaje = service.users().messages().get(
+            userId="me", id=message_id
+        ).execute()
+        payload = mensaje.get("payload", {})
+        headers = payload.get("headers", [])
 
         asunto = ""
         remitente = ""
         fecha = ""
 
         for h in headers:
-            if h['name'] == 'Subject':
-                asunto = h['value']
-            elif h['name'] == 'From':
-                remitente = h['value']
-            elif h['name'] == 'Date':
-                fecha = h['value']
+            name = h.get("name")
+            value = h.get("value", "")
+            if name == "Subject":
+                asunto = value
+            elif name == "From":
+                remitente = value
+            elif name == "Date":
+                fecha = value
 
-        # Cuerpo del correo
-        partes = payload.get("parts", [])
-        cuerpo = ""
-
-        if partes:
-            data = partes[0]['body'].get('data')
-            if data:
-                cuerpo = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+        cuerpo = extraer_cuerpo(payload)
 
         print("======================================")
+        print(f"ID: {message_id}")
         print(f"Asunto: {asunto}")
         print(f"Remitente: {remitente}")
         print(f"Fecha: {fecha}")
-        print(f"Cuerpo:\n{cuerpo}")
+        print(f"Cuerpo (inicio):\n{cuerpo[:300]}...")
         print("======================================\n")
 
-        # BLOQUEAR REMITENTES AUTOMÁTICOS
-        bloquear = [
-            "godaddy", "no-reply", "noreply",
-            "notification", "notificaciones", "alerts",
-            "amazon", "microsoft", "apple",
-            "facebook", "instagram", "paypal", "mercadolibre",
-            "linkedin", "teams", "zoom", "slack",
-        ]
-
-        if any(b in remitente.lower() for b in bloquear):
+        # Filtrar remitentes automáticos
+        if any(b in remitente.lower() for b in BLOQUEAR_REMITENTES):
             print(f"✖ Correo ignorado por remitente automático: {remitente}")
             continue
 
-        # PALABRAS CLAVE
-        palabras_clave = [
-            "error", "falla", "fallo", "problema", "daño", "incidencia",
-            "no funciona", "no prende", "no enciende", "no responde",
-            "no abre", "pantalla azul", "bloqueado", "congelado", 
-            "se traba", "lento", "tarda mucho", "descompuesto",
-            "servidor caído", "inaccesible", "no tengo acceso",
-            "desconectado", "red caída", "problemas de red", "ups"
-        ]
-
-        # DETECCIÓN CORRECTA DE INCIDENCIA
-        if any(palabra in cuerpo.lower() for palabra in palabras_clave):
-            incidencias_detectadas.append({
+        # Detectar incidencias por palabras clave
+        cuerpo_lower = cuerpo.lower()
+        if any(p in cuerpo_lower for p in PALABRAS_CLAVE):
+            incidencias.append({
                 "message_id": message_id,
-                "asunto": asunto,
                 "remitente": remitente,
-                "fecha": fecha,
-                "descripcion": cuerpo
-                
+                "asunto": asunto,
+                "descripcion": cuerpo,
+                "fecha": fecha
             })
-        if existe_incidencia(message_id):
-            print(f"⚠ Incidencia YA EXISTE, no se guarda: {message_id}")
-            continue
-        guardar_incidencia(message_id, remitente, asunto, cuerpo, fecha)
-        print("✔ Incidencia guardada en la BD.")
 
-    # ESTE RETURN VA FUERA DEL FOR
-    return incidencias_detectadas
+    return incidencias
 
-def sincronizar_correos_desde_gmail():
+
+def sincronizar_correos_desde_gmail(service, usuario_email, max_correos=10):
+    """
+    Usa leer_correos() y guarda en la BD solo las incidencias NUEVAS
+    para el usuario indicado.
+    """
     crear_base_datos()
-    servicio = authenticate_gmail()
 
+    incidencias = leer_correos(service, max_correos=max_correos)
     nuevas = 0
-    incidencias = leer_correos(servicio)
 
     for inc in incidencias:
-        if not existe_incidencia(inc["message_id"]):
-            guardar_incidencia(
-                inc["message_id"],
-                inc["remitente"],
-                inc["asunto"],
-                inc["descripcion"],
-                inc["fecha"]
-            )
-            nuevas += 1
+        mid = inc["message_id"]
+
+        if existe_incidencia(mid, usuario_email):
+            print(f"⚠ Incidencia YA EXISTE para {usuario_email}, no se guarda: {mid}")
+            continue
+
+        guardar_incidencia(
+            mid,
+            inc["remitente"],
+            inc["asunto"],
+            inc["descripcion"],
+            inc["fecha"],
+            usuario_email
+        )
+        nuevas += 1
+        print(f"✔ Incidencia guardada para {usuario_email}: {mid}")
 
     return nuevas
-
-
-if __name__ == "__main__":
-    crear_base_datos()
-    servicio = authenticate_gmail()
-    incidencias = leer_correos(servicio)
-
-    print("\n=== INCIDENCIAS DETECTADAS ===")
-    for inc in incidencias:
-        print(f"- {inc['asunto']} ({inc['remitente']})")
