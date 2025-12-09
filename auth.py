@@ -2,8 +2,8 @@ from flask import Blueprint, redirect, request, session
 from google_auth_oauthlib.flow import Flow
 from google.oauth2 import id_token
 from google.auth.transport import requests
-import os
 import json
+import os
 
 auth = Blueprint("auth", __name__)
 
@@ -13,9 +13,11 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
 SCOPES = [
     "openid",
+    "email",
+    "profile",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.readonly"
 ]
 
 
@@ -27,11 +29,11 @@ def build_flow(state=None):
                 "client_secret": GOOGLE_CLIENT_SECRET,
                 "redirect_uris": [GOOGLE_REDIRECT_URI],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
+                "token_uri": "https://oauth2.googleapis.com/token"
             }
         },
         scopes=SCOPES,
-        state=state,
+        state=state
     )
 
 
@@ -42,8 +44,8 @@ def login():
 
     auth_url, state = flow.authorization_url(
         access_type="offline",
-        prompt="consent",
-        include_granted_scopes="true",
+        include_granted_scopes=True,
+        prompt="consent"
     )
 
     session["state"] = state
@@ -59,20 +61,27 @@ def callback():
     flow = build_flow(state)
     flow.redirect_uri = GOOGLE_REDIRECT_URI
 
-    # Intercambiamos "code" por tokens
     flow.fetch_token(authorization_response=request.url)
 
     credentials = flow.credentials
 
-    # Datos del usuario
-    info = id_token.verify_oauth2_token(
+    # Información del usuario
+    idinfo = id_token.verify_oauth2_token(
         credentials.id_token,
         requests.Request(),
-        GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_ID
     )
 
-    # Guardamos correo y credenciales completas (JSON)
-    session["email"] = info["email"]
-    session["google_credentials"] = credentials.to_json()
+    session["email"] = idinfo["email"]
+
+    # 🔥 AQUÍ GUARDAREMOS TODAS LAS CREDENCIALES (IMPORTANTE)
+    session["google_credentials"] = json.dumps({
+        "token": credentials.token,
+        "refresh_token": credentials.refresh_token,
+        "token_uri": credentials.token_uri,
+        "client_id": credentials.client_id,
+        "client_secret": credentials.client_secret,
+        "scopes": credentials.scopes,
+    })
 
     return redirect("/")

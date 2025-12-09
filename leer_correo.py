@@ -1,7 +1,9 @@
 import base64
 
 from database import crear_base_datos, existe_incidencia, guardar_incidencia
-
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from flask import session
 
 PALABRAS_CLAVE = [
     "error", "falla", "fallo", "problema", "daño", "incidencia",
